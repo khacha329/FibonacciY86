@@ -1,0 +1,138 @@
+.pos 0
+
+main:
+    irmovq $0x370, %rsp      # Set up stack pointer
+    irmovq $0x370, %rbp
+
+    irmovq $1,%rdi
+    irmovq $8,%r14  #to switch numbers
+    irmovq $1,%r13 #bit index
+    
+    irmovq $9999999999,%r12  # number to find square root of here
+    irmovq $0x210,%rsi
+    mrmovq $65536,%r8       #mask bit 
+
+    xorq %rcx,%rcx      #result of square
+    
+
+call squareRoot
+
+halt
+
+
+
+squareRoot:
+#this sub routine takes number in %r12 and returns its square root in %rcx
+#uses %r8 as a bit mask to calculate square root
+#this uses memory address in 0x200
+#the stack bellow saves modified values
+pushq %r8
+pushq %r12
+pushq %r11
+pushq %rdx
+pushq %rax
+pushq %r14
+xorq %rcx,%rcx
+irmovq $0x440, %r14         #set up address
+rmmovq %r12,(%r14)          #temp for number
+step1:
+    subq %r8,%r12
+    jge step2
+    rrmovq %r8,%r11         #set up bit shift 
+    irmovq $2,%rdx          #bit shift twice
+    call rshift
+    rrmovq %r11,%r8         #new bit, shifted twice
+    mrmovq (%r14),%r12      #restore number
+    jmp step1
+# step 2 of algo
+step2:
+    xorq %rax,%rax          #reset rax
+    mrmovq (%r14),%r12      #restore number
+    andq %r8,%r8            #check if bit = 0
+    je terminate
+    addq   %rcx,%rax 
+    addq   %r8,%rax         #%rax = %rcx + bit
+    subq   %rax,%r12        #%r12 = %rax - %r12
+    jl    else              #if %r12 > %rax jump
+    mrmovq (%r14),%r12      #restore number
+    subq %rax,%r12          #%rax = %r12 - %rax
+    rmmovq %r12,(%r14)      #store new value
+    rrmovq %rcx,%r11        #set up right bitshift
+    irmovq $1,%rdx          #bit shift once
+    call rshift
+    addq %r8, %r11          #%r11 = result >> 1 +bit
+    rrmovq %r11,%rcx        #%rcx = %r11
+    jmp end
+else:
+    rrmovq %rcx,%r11        #set up right bitshift
+    irmovq $1,%rdx          #bit shift once
+    call rshift
+    rrmovq %r11,%rcx        #store bit shift result
+
+end: 
+    #bit shift bit 2 times
+    rrmovq %r8,%r11         #set up bit shift 
+    irmovq $2,%rdx          #bit shift twice
+    call rshift 
+    rrmovq %r11,%r8 
+    jmp step2
+
+terminate:
+popq %r14
+popq %rax    
+popq %rdx
+popq %r11
+popq %r12
+popq %r8
+    ret
+
+
+rshift:
+# this subroutine takes number in %r11 and shifts it to the right n times
+# n is stored in %rdx
+#returns result in %r11
+#this uses memory address 0x208
+# the stack bellow saves the modified values
+andq %r11,%r11
+je skip
+pushq %r13
+pushq %rsi
+pushq %rbx
+pushq %rdx
+pushq %rax
+
+irmovq $0x448,%rsi
+rmmovq %r11,(%rsi)          #save temp
+xorq %rbx,%rbx              #reset %rbx
+xorq %rax,%rax              #reset %rax
+next:
+    subq %r13,%r11          #check how big our number is
+    jl comeback
+    mrmovq (%rsi),%r11      #restore number 
+    andq %r13,%r11          #check if number at index is 1 or 0
+    je shift
+    addq %rbx,%rax          #accumulate result
+shift:
+    rrmovq %r13, %rbx       #store right shifted bit here
+    addq %r13,%r13          # shift mask bit
+    mrmovq (%rsi),%r11      #restore number  
+    jmp next                #jump if masked bit is 0
+comeback:
+    irmovq $1,%r13
+    xorq %rbx,%rbx
+    rmmovq %rax,(%rsi)      #save result in memory
+    xorq %rax,%rax          #reset accumulator
+    mrmovq (%rsi),%r11      #new number to shift 
+    subq %rdi,%rdx
+    jne next
+popq %rax
+popq %rdx    
+popq %rbx
+popq %rsi
+popq %r13
+skip:
+ret
+
+
+
+

@@ -1,0 +1,258 @@
+# done by khalil mohamed chakal
+
+# read numbers from 0x700 and check if they are part of fibunnacci or not
+# return 1 or 0 in  %r12 depending if we found a fibunnacci number in sequence or not
+# in register %rax u can find the number that was found as not part of the fibunnacci sequence
+#
+# step 1 : retrieve number from 0x700 and store in %r11 then move index to next location
+# step 2 : get square of the number with "call square". result is stored in %rax then moved to %r12
+# step 3 : make the number 5(%r12)-4 or 5(%r12)+4 and store it in %r12
+# step 4 : calculate square root of %r12 and move result from %rcx to %r11
+# step 5 : check if %r12 is perfect square by using "call square" with %r11 and compare result in %rax with previous value of %r12
+# step 6 : if number is not from fibunnacci sequence return it in %rax and halt else move to next number in list
+
+
+# the code bellow take about 15,000 steps to detect that 1000 is not a number in the sequence
+# the code takes 5,641 steps to detect that 987 is a number in the sequence
+# the code take 10,380 to detect that 610 is a number in the sequence
+# 610 takes longer than 987 because im starting by checking with +4 which is the long way around for 610
+# i am using a naive way to calculate bit used for square root and assumed when i add the x^2*4 +x^2 (5*x*x) 
+# i will not overflow and left shift the bit
+# i think  the performance can be optimized alot if i can detect if the number is more likely
+# to be a perfect square with + 4 or -4 in the algorithm
+# i worked on an algorithm before this one but i understood that we were going to check a series of max 1000 elements 
+# not 1000 is the max number to check, finnish translation failed me :) but in any case this code should work for numbers up to 31 bits
+# as explained in the long comment in the code
+
+main:
+    irmovq $0x500, %rsp     #Set up stack pointer
+    irmovq $0x500, %rbp
+
+    #xorq %r11,%r11
+    
+    #xorq %r12,%r12
+    irmovq $0x700,%r9       #used to go through numbers in list
+    irmovq $0x450,%rsi      #used to store bit needed for square root
+    irmovq $1,%rdi          #global counter
+    rmmovq %rdi, 32(%rsi)   #used as a flag to optimize
+    irmovq $1,%r13          #bit index
+    irmovq $4,%rdx          #used for fibunnacci sequence
+    irmovq $8,%rbx          #used to step in list
+    irmovq $0x40000000,%r14 #used to indicate the highest number this microprocessor can check (64 bits /2 -1 = 31bits)
+                            #peasant multiplication (used in x^2) shifts the number to the left for its entire length
+                            #therefor if number is 31bits long after x^2 it will become 62 bits long
+                            #we then multiply by 5 (4*1+1) equivalent to two move bit shifts, in total our number will be 64 bits
+                            #if we dont check for this our program will overflow and return a wrong result and consume alot of memory space
+    
+check:
+    mrmovq (%r9), %r11      #number to find square of
+    rmmovq %rdi, 32(%rsi)   #set flag to allow bit
+    call square
+
+    rrmovq %rax,%r12        #square of the number %r12 = %r11^2
+    
+    mrmovq 8(%rsi),%r8      #mask bit for result of x^2
+    addq %r8,%r8
+    addq %r8,%r8
+    rmmovq %r8 ,8(%rsi)
+    addq %r12,%r12
+    addq %r12,%r12
+    addq %rax,%r12          #%r12= 5*%r12
+    rmmovq %r12,16(%rsi)    #save number in 0x320
+    addq %rdx,%r12
+    call squareRoot
+    rrmovq %rcx,%r11        #store result somewhere
+    call square             #square result
+    subq %rax,%r12          #check if result squared = %r12
+    je pass                 #if yes pass to next number in list
+    
+    mrmovq 8(%rsi),%r8      #mask bit for result of x^2
+    mrmovq 16(%rsi),%r12    #remember to restore r12
+    subq %rdx,%r12
+    call squareRoot
+    rrmovq %rcx,%r11        #store result somewhere
+    call square             #square result
+    subq %rax,%r12          #check if result squared = %r12
+    jne finish              #if yes return 0 and halt
+    xorq %r10,%r10
+pass:
+    addq %rbx, %r9          #move index to next number
+    mrmovq (%r9),%r11       #retrieve number
+    andq %r11,%r11          #check if number is 0 (end of list)
+    je finish
+    subq %r11,%r14          #check if number is too high
+    jge check               #if number lower proceed to check if part of fibunnacci or not
+    jmp pass                #if it is too high skip it and check the next number
+
+finish:
+
+mrmovq (%r9),%rax
+
+halt
+
+
+
+squareRoot:
+#this sub routine takes number in %r12 and returns its square root in %rcx
+#uses %r8 as a bit mask to calculate square root
+#this uses memory address in 0x440
+#the stack bellow saves modified values
+pushq %r8
+pushq %r12
+pushq %r11
+pushq %rdx
+pushq %rax
+pushq %r14
+xorq %rcx,%rcx
+irmovq $0x440, %r14         #set up address
+rmmovq %r12,(%r14)          #temp for number
+step1:
+    subq %r8,%r12
+    jge step2
+    rrmovq %r8,%r11         #set up bit shift 
+    irmovq $2,%rdx          #bit shift twice
+    call rshift
+    rrmovq %r11,%r8         #new bit, shifted twice
+    mrmovq (%r14),%r12      #restore number
+    jmp step1
+# step 2 of algo
+step2:
+    xorq %rax,%rax          #reset rax
+    mrmovq (%r14),%r12      #restore number
+    andq %r8,%r8            #check if bit = 0
+    je terminate
+    addq   %rcx,%rax 
+    addq   %r8,%rax         #%rax = %rcx + bit
+    subq   %rax,%r12        #%r12 = %rax - %r12
+    jl    else              #if %r12 > %rax jump
+    mrmovq (%r14),%r12      #restore number
+    subq %rax,%r12          #%rax = %r12 - %rax
+    rmmovq %r12,(%r14)      #store new value
+    rrmovq %rcx,%r11        #set up right bitshift
+    irmovq $1,%rdx          #bit shift once
+    call rshift
+    addq %r8, %r11          #%r11 = result >> 1 +bit
+    rrmovq %r11,%rcx        #%rcx = %r11
+    jmp end
+else:
+    rrmovq %rcx,%r11        #set up right bitshift
+    irmovq $1,%rdx          #bit shift once
+    call rshift
+    rrmovq %r11,%rcx        #store bit shift result
+
+end: 
+    #bit shift bit 2 times
+    rrmovq %r8,%r11         #set up bit shift 
+    irmovq $2,%rdx          #bit shift twice
+    call rshift 
+    rrmovq %r11,%r8 
+    jmp step2
+
+terminate:
+popq %r14
+popq %rax    
+popq %rdx
+popq %r11
+popq %r12
+popq %r8
+    ret
+
+rshift:
+# this subroutine takes number in %r11 and shifts it to the right n times
+# n is stored in %rdx
+#returns result in %r11
+#this uses memory address 0x448
+# the stack bellow saves the modified values
+andq %r11,%r11
+je skip
+pushq %r13
+pushq %rsi
+pushq %rbx
+pushq %rdx
+pushq %rax
+
+irmovq $0x448,%rsi
+rmmovq %r11,(%rsi)          #save temp
+xorq %rbx,%rbx              #reset %rax
+xorq %rax,%rax              #reset %rax
+next:
+    subq %r13,%r11          #check how big our number is
+    jl comeback
+    mrmovq (%rsi),%r11      #restore number 
+    andq %r13,%r11          #check if number at index is 1 or 0
+    je shift
+    addq %rbx,%rax          #accumulate result
+shift:
+    rrmovq %r13, %rbx       #store right shifted bit here
+    addq %r13,%r13          # shift mask bit
+    mrmovq (%rsi),%r11      #restore number  
+    jmp next                #jump if masked bit is 0
+comeback:
+    irmovq $1,%r13
+    xorq %rbx,%rbx
+    rmmovq %rax,(%rsi)      #save result in memory
+    xorq %rax,%rax          #reset accumulator
+    mrmovq (%rsi),%r11      #new number to shift 
+    subq %rdi,%rdx
+    jne next
+popq %rax
+popq %rdx    
+popq %rbx
+popq %rsi
+popq %r13
+skip:
+ret
+
+# performing square of number in %r11 and returning result in %rax
+# this uses memory address in 0x450 to store number and 0x458 to store mask bit (used for sqaure root algorithm)
+square:
+pushq %r13
+pushq %r14
+pushq %rsi
+pushq %rcx
+pushq %r9
+
+xorq %rax,%rax
+irmovq $1,%r14
+irmovq $0x450,%rsi
+rmmovq %r11,(%rsi)
+mrmovq (%rsi),%rcx # use rcx as number 2
+mrmovq 32(%rsi), %r9
+config:
+    subq %r13,%r11          #check if number is smaller than index position (all bits on the left of index are 0)
+    jl done
+    mrmovq (%rsi),%r11      #restore number
+    andq %r13,%r11          #check if number at index is 1 or 0
+    je ignore
+    addq %rcx,%rax          #accumulate result
+ignore:    
+    addq %rcx,%rcx          #shift number to add next
+    addq %r13,%r13          # shift mask bit
+    mrmovq (%rsi),%r11      #restore number 
+    addq %rdi,%r14          #store length of mask bit
+    jmp config              #jump if masked bit is 0
+done:
+xorq %rcx,%rcx
+subq %rdi,%r14
+subq %rdi,%r9
+rmmovq %r9,32(%rsi)
+jne ignore2
+fix:                        #this gets the right bit for the square of the number
+    addq %r13,%r13
+    subq %rdi,%r14
+jne fix
+rmmovq %r13,8(%rsi)         #store shift bit in 0x318 used in square root later
+ignore2:
+
+popq %r9
+popq %rcx
+popq %rsi
+popq %r14
+popq %r13
+ret
+
+
+
+
+.pos 0x700
+array:
